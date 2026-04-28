@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: broker-order-api
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3308}/broker_order_db?allowPublicKeyRetrieval=true&useSSL=false&createDatabaseIfNotExist=true&serverTimezone=UTC
+    username: ${DB_USER:broker_user}
+    password: ${DB_PASSWORD:broker_pass}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_HOST:localhost}:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: 5672
+    username: ${RABBIT_USER:admin}
+    password: ${RABBIT_PASSWORD:admin_pass}
+
+app:
+  services:
+    wallet-url: http://localhost:8081
+
+  kafka:
+    producer:
+      topic-order-events: order-events-v1
+
+  rabbitmq:
+    exchange: "exchange.broker.orders"
+    routing-key: "b3.matching.engine"
+    queue-in: "mq-broker-to-b3"
+    queue-out: "mq-b3-to-broker"
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+  show-actuator: true
+
+server:
+  port: 8088
