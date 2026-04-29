@@ -1,35 +1,62 @@
-# 🚀 Broker Order API
+﻿# 🚀 Broker Order API
 
-Microserviço responsável pela orquestração, validação e submissão de ordens de compra e venda de ativos para o ecossistema do Broker e integração com o simulador da B3.
+Microservice responsible for orchestrating the complete lifecycle of market orders in the **My Broker B3** ecosystem. It validates user balance, persists orders, routes them to the B3 Matching Engine via RabbitMQ, and publishes lifecycle events to Kafka for downstream consumers.
 
-## 🛠️ Tecnologias Utilizadas
-* **Java 21** & **Spring Boot 3.3.5**
-* **Spring Cloud OpenFeign**: Comunicação síncrona com a Wallet API para validação de saldo.
-* **Apache Kafka**: Mensageria interna para eventos de auditoria e status (tópico `order-events-v1`).
-* **RabbitMQ**: Integração externa (AMQP) para envio de ordens ao Matching Engine (fila `mq-broker-to-b3`).
-* **MySQL 8.0**: Persistência do histórico de ordens (Banco: `broker_order_db`).
-* **Flyway**: Gestão de migrations e versionamento do banco.
-* **Lombok & MapStruct**: Produtividade e mapeamento de DTOs.
+> 📘 This service is part of a series of articles documenting the **My Broker B3** ecosystem.
+> Follow the full series on [dev.to/rvneto](https://dev.to/rvneto).
 
-## 📋 Pré-requisitos (Infraestrutura)
-Certifique-se de que os seguintes serviços estão rodando no seu Docker:
-* **MySQL**: Disponível na porta `3308`.
-* **Kafka**: Disponível na porta `9092`.
-* **RabbitMQ**: Disponível na porta `5672` (Management na `15672`).
-* **Wallet API**: Deve estar ativa na porta `8081` para as chamadas de validação.
+---
 
-## 🔧 Configuração e Execução
-1. Configure as credenciais de banco e endereços de mensageria no `src/main/resources/application.yaml`.
-2. Compile e execute o projeto:
-   ```bash
-   mvn clean install
-   mvn spring-boot:run
-3. A API estará disponível em: http://localhost:8082
+## 🏗️ Architecture & Flow
+[User]
+│
+│  POST /api/v1/orders
+▼
+[broker-order-api]
+│
+├─ 1. Validate balance → Wallet API (Feign/REST)
+├─ 2. Persist order   → MySQL (status: PENDING)
+├─ 3. Send to B3      → RabbitMQ (mq-broker-to-b3)
+└─ 4. Notify          → Kafka (order-events-v1, PENDING)
+     ─ ─ ─ (B3 processes the order) ─ ─ ─
+[b3-matching-engine-api]
+│  RabbitMQ (mq-b3-to-broker)
+▼
+[broker-order-api]
+├─ 5. Update status → MySQL (FILLED or REJECTED)
+└─ 6. Notify        → Kafka (order-events-v1, final status)
+│
+[broker-wallet-api] (blocks/settles/refunds)
 
-## 📖 Documentação da API (Swagger)
-Acesse a interface interativa para testes em: ```http://localhost:8082/swagger-ui.html```
+---
 
-Exemplo de Payload (POST /api/v1/orders)
+## 🛠️ Tech Stack
+
+| Technology | Usage |
+| :--- | :--- |
+| **Java 21** + **Spring Boot 3.3.5** | Service core |
+| **Spring Cloud OpenFeign** | Sync REST call to Wallet API for balance validation |
+| **Apache Kafka** | Internal event bus — order lifecycle events (`order-events-v1`) |
+| **RabbitMQ** | External integration with B3 Matching Engine |
+| **MySQL 8.0** + **Flyway** | Order persistence and schema versioning |
+| **SpringDoc OpenAPI** | Swagger UI documentation |
+
+---
+
+## 🌐 REST API Endpoints
+
+Base URL: `http://localhost:8088/api/v1`
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| POST | `/orders` | Place a new buy or sell order |
+| GET | `/orders/{id}` | Get order details by ID |
+| GET | `/orders/user/{userId}` | List all orders for a user |
+
+📄 **Swagger UI**: [http://localhost:8088/swagger-ui.html](http://localhost:8088/swagger-ui.html)
+📄 **OpenAPI Spec**: [http://localhost:8088/v3/api-docs](http://localhost:8088/v3/api-docs)
+
+### Request Payload Example
 
 ```json
 {
@@ -40,9 +67,47 @@ Exemplo de Payload (POST /api/v1/orders)
   "side": "BUY"
 }
 ```
-## 🔄 Fluxograma da Ordem
-1. Request: O Controller recebe a ordem e valida os campos obrigatórios.
-2. Saldo: O Service chama a broker-wallet-api via Feign para checar o availableBalance.
-3. Persistência: Se houver saldo, a ordem é salva no MySQL com status OPEN.
-4. Internal Event: Publica no Kafka (usado para atualizar posições e histórico).
-5. External Command: Envia para a fila RabbitMQ da B3 para execução no pregão simulado.
+
+## 🔧 Environment Variables
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `DB_HOST` | MySQL host | `localhost` |
+| `DB_PORT` | MySQL port | `3308` |
+| `DB_USER` | MySQL username | `broker_user` |
+| `DB_PASSWORD` | MySQL password | `broker_pass` |
+| `KAFKA_HOST` | Kafka broker host | `localhost` |
+| `RABBIT_HOST` | RabbitMQ host | `localhost` |
+| `RABBIT_USER` | RabbitMQ username | `admin` |
+| `RABBIT_PASSWORD` | RabbitMQ password | `admin_pass` |
+
+## 📋 Prerequisites
+
+Make sure the following services are running:
+
+- MySQL on port `3308`
+- Kafka on port `9092`
+- RabbitMQ on port `5672` (Management UI on `15672`)
+- `broker-wallet-api` on port `8085` (required for BUY order balance validation)
+- `b3-matching-engine-api` on port `8091` (consuming from `mq-broker-to-b3`)
+
+## 🐳 Running with Docker
+
+```bash
+docker build -t broker-order-api .
+```
+
+```bash
+docker run --network finance-network \
+  -e DB_HOST=broker-order-db \
+  -e KAFKA_HOST=kafka \
+  -e RABBIT_HOST=rabbitmq \
+  broker-order-api
+```
+
+## 🚦 Health Check
+
+Spring Actuator is enabled for health monitoring:
+
+- Endpoint: `GET /actuator/health`
+- Port: `8088`
