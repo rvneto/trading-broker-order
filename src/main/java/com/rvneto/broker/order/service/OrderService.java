@@ -1,5 +1,6 @@
 package com.rvneto.broker.order.service;
 
+import com.rvneto.broker.order.client.AssetClient;
 import com.rvneto.broker.order.client.WalletClient;
 import com.rvneto.broker.order.domain.Order;
 import com.rvneto.broker.order.domain.OrderSide;
@@ -9,6 +10,7 @@ import com.rvneto.broker.order.dto.OrderRequestDTO;
 import com.rvneto.broker.order.messaging.kafka.OrderEventProducer;
 import com.rvneto.broker.order.messaging.rabbit.B3MessageProducer;
 import com.rvneto.broker.order.repository.OrderRepository;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final WalletClient walletClient;
+    private final AssetClient assetClient;
     private final OrderEventProducer orderEventProducer;
     private final B3MessageProducer b3MessageProducer;
 
@@ -32,12 +35,15 @@ public class OrderService {
     public Order placeOrder(OrderRequestDTO request) {
         log.info("Processing new {} order for user: {}", request.getSide(), request.getUserId());
 
-        // 1. Validate balance for BUY orders via Wallet API (Feign)
+        // 1. Validate ticker exists and is ACTIVE in asset catalog
+        validateTicker(request.getTicker());
+
+        // 2. Validate balance for BUY orders via Wallet API (Feign)
         if (request.getSide() == OrderSide.BUY) {
             validateBalance(request);
         }
 
-        // 2. Persist order with PENDING status
+        // 3. Persist order with PENDING status
         Order order = Order.builder()
                 .userId(request.getUserId())
                 .ticker(request.getTicker().toUpperCase())
@@ -50,13 +56,28 @@ public class OrderService {
         order = orderRepository.save(order);
         log.info("Order {} persisted with status PENDING", order.getId());
 
-        // 3. Send to B3 via RabbitMQ
+        // 4. Send to B3 via RabbitMQ
         b3MessageProducer.sendToB3(mapToB3Message(order));
 
-        // 4. Publish PENDING event to Kafka for wallet and other consumers
+        // 5. Publish PENDING event to Kafka for wallet and other consumers
         orderEventProducer.sendOrderEvent(order.mapToEvent());
 
         return order;
+    }
+
+    private void validateTicker(String ticker) {
+        try {
+            var asset = assetClient.getByTicker(ticker.toUpperCase());
+            if (!"ACTIVE".equalsIgnoreCase(asset.status())) {
+                throw new RuntimeException("Asset is not available for trading: " + ticker);
+            }
+            log.info("Ticker {} validated — status: {}", ticker, asset.status());
+        } catch (FeignException.NotFound e) {
+            throw new RuntimeException("Asset not found or inactive: " + ticker);
+        } catch (FeignException e) {
+            log.error("Asset service unavailable during ticker validation: {}", e.getMessage());
+            throw new RuntimeException("Asset service unavailable. Please try again later.");
+        }
     }
 
     private void validateBalance(OrderRequestDTO request) {

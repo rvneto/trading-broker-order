@@ -1,6 +1,6 @@
-﻿# 🚀 Broker Order API
+# 🚀 Broker Order API
 
-Microserviço responsável por orquestrar o ciclo de vida completo das ordens de mercado no ecossistema **My Broker B3**. Valida o saldo do usuário, persiste as ordens, as encaminha ao Matching Engine da B3 via RabbitMQ e publica eventos de ciclo de vida no Kafka para os consumidores downstream.
+Microserviço responsável por orquestrar o ciclo de vida completo das ordens de mercado no ecossistema **My Broker B3**. Valida o ticker do ativo, valida o saldo do usuário, persiste as ordens, as encaminha ao Matching Engine da B3 via RabbitMQ e publica eventos de ciclo de vida no Kafka para os consumidores downstream.
 
 > 📘 Este serviço faz parte de uma série de artigos documentando o ecossistema **My Broker B3**.
 > Acompanhe a série completa em [dev.to/rvneto](https://dev.to/rvneto).
@@ -14,17 +14,18 @@ Microserviço responsável por orquestrar o ciclo de vida completo das ordens de
 ▼
 [broker-order-api]
 │
-├─ 1. Valida saldo  → Wallet API (Feign/REST)
-├─ 2. Persiste      → MySQL (status: PENDING)
-├─ 3. Envia para B3 → RabbitMQ (mq-broker-to-b3)
-└─ 4. Notifica      → Kafka (order-events-v1, PENDING)
+├─ 1. Valida ticker  → Asset API (Feign/REST)
+├─ 2. Valida saldo   → Wallet API (Feign/REST)
+├─ 3. Persiste       → MySQL (status: PENDING)
+├─ 4. Envia para B3  → RabbitMQ (mq-broker-to-b3)
+└─ 5. Notifica       → Kafka (order-events-v1, PENDING)
      ─ ─ ─ (B3 processa a ordem) ─ ─ ─
 [b3-matching-engine-api]
 │  RabbitMQ (mq-b3-to-broker)
 ▼
 [broker-order-api]
-├─ 5. Atualiza status → MySQL (FILLED ou REJECTED)
-└─ 6. Notifica        → Kafka (order-events-v1, status final)
+├─ 6. Atualiza status → MySQL (FILLED ou REJECTED)
+└─ 7. Notifica        → Kafka (order-events-v1, status final)
 │
 [broker-wallet-api] (bloqueia/liquida/estorna)
 
@@ -35,7 +36,7 @@ Microserviço responsável por orquestrar o ciclo de vida completo das ordens de
 | Tecnologia | Uso |
 | :--- | :--- |
 | **Java 21** + **Spring Boot 3.3.5** | Core do serviço |
-| **Spring Cloud OpenFeign** | Chamada REST síncrona à Wallet API para validação de saldo |
+| **Spring Cloud OpenFeign** | Chamadas REST síncronas à Asset API (validação de ticker) e Wallet API (validação de saldo) |
 | **Apache Kafka** | Barramento interno de eventos de ciclo de vida (`order-events-v1`) |
 | **RabbitMQ** | Integração externa com o Matching Engine da B3 |
 | **MySQL 8.0** + **Flyway** | Persistência de ordens e versionamento do schema |
@@ -68,6 +69,8 @@ Base URL: `http://localhost:8088/api/v1`
 }
 ```
 
+---
+
 ## 🔧 Variáveis de Ambiente
 
 | Variável | Descrição | Padrão |
@@ -80,6 +83,10 @@ Base URL: `http://localhost:8088/api/v1`
 | `RABBIT_HOST` | Host do RabbitMQ | `localhost` |
 | `RABBIT_USER` | Usuário do RabbitMQ | `admin` |
 | `RABBIT_PASSWORD` | Senha do RabbitMQ | `admin_pass` |
+| `ASSET_SERVICE_URL` | URL base da Asset API | `http://localhost:8083` |
+| `WALLET_SERVICE_URL` | URL base da Wallet API | `http://localhost:8085` |
+
+---
 
 ## 📋 Pré-requisitos
 
@@ -88,8 +95,11 @@ Certifique-se de que os seguintes serviços estão rodando:
 - MySQL na porta `3308`
 - Kafka na porta `9092`
 - RabbitMQ na porta `5672` (Management UI na `15672`)
+- `broker-asset-api` na porta `8083` (necessário para validação de ticker)
 - `broker-wallet-api` na porta `8085` (necessário para validação de saldo em ordens BUY)
 - `b3-matching-engine-api` na porta `8091` (consumindo de `mq-broker-to-b3`)
+
+---
 
 ## 🐳 Rodando com Docker
 
@@ -102,8 +112,12 @@ docker run --network finance-network \
   -e DB_HOST=broker-order-db \
   -e KAFKA_HOST=kafka \
   -e RABBIT_HOST=rabbitmq \
+  -e ASSET_SERVICE_URL=http://broker-asset-api:8083 \
+  -e WALLET_SERVICE_URL=http://broker-wallet-api:8085 \
   broker-order-api
 ```
+
+---
 
 ## 🚦 Health Check
 
