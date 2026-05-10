@@ -36,7 +36,7 @@ spring:
 
 app:
   services:
-    wallet-url: http://localhost:8081
+    wallet-url: http://localhost:8085
     asset-url: ${ASSET_SERVICE_URL:http://localhost:8083}
 
   kafka:
