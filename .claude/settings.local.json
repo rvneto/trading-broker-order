@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(mvn *)"
+      "PowerShell(mvn *)",
+      "Bash(rtk find *)",
+      "Bash(rtk ls *)",
+      "Bash(rtk grep *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Developer\\\\Projetos\\\\trading\\\\trading-broker-order\\\\src\\\\main\\\\java\" -Recurse -Filter \"*.java\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(./mvnw compile *)"
     ]
   }
 }
