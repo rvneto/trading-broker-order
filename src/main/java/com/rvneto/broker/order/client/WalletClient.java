@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 @FeignClient(name = "broker-wallet-api", url = "${app.services.wallet-url}")
 public interface WalletClient {
 
-    @GetMapping("/api/v1/wallet/{userId}/summary")
+    @GetMapping("/api/v1/wallets/{userId}/summary")
     WalletSummaryDTO getWalletSummary(@PathVariable("userId") String userId);
 
 }
