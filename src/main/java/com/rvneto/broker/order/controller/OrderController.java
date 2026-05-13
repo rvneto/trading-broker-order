@@ -23,9 +23,12 @@ public class OrderController {
     private final OrderService orderService;
 
     @Operation(summary = "Place a new order",
-               description = "Submits a new BUY or SELL order. Validates wallet balance for BUY orders.")
+               description = "Submits a new BUY or SELL order. userId is extracted from the JWT token via gateway header X-User-Id.")
     @PostMapping
-    public ResponseEntity<Order> placeOrder(@Valid @RequestBody OrderRequestDTO request) {
+    public ResponseEntity<Order> placeOrder(
+            @RequestHeader("X-User-Id") String userId,
+            @Valid @RequestBody OrderRequestDTO request) {
+        request.setUserId(userId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(orderService.placeOrder(request));
     }

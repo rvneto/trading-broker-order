@@ -11,7 +11,6 @@ import java.math.BigDecimal;
 @Data
 public class OrderRequestDTO {
 
-    @NotBlank(message = "User ID is required")
     private String userId;
 
     @NotBlank(message = "Ticker is required")
